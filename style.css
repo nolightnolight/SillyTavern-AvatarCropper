@@ -1,69 +1,67 @@
-/* ===== 剪裁头像及控制栏 ===== */
+/* ===== 放大原图界面的控制栏 (右上角四个按键) ===== */
 .zoomed_avatar .panelControlBar {
+    display: flex !important;
+    flex-direction: row !important;
     align-items: center;
     opacity: 1 !important;
     background: rgba(0, 0, 0, 0.7) !important;
     border-radius: 8px;
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: row; 
-    gap: 8px;
+    padding: 8px 12px;
+    gap: 15px;
     width: fit-content !important;
-    margin: 0 auto;
+    margin: 10px;
 }
 
 .st-avatar-injected-btns {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
+    gap: 15px;
 }
 
-.zoomed_avatar .panelControlBar .drag-grabber,
+.zoomed_avatar .panelControlBar .drag-grabber {
+    display: none !important; /* 隐藏拖拽把手，保持界面纯净 */
+}
+
 .zoomed_avatar .panelControlBar .dragClose,
 #st-native-crop-btn,
 #st-gallery-btn,
 #st-revert-crop-btn {
     filter: none !important;
-    opacity: 1 !important;
-    font-size: calc(var(--mainFontSize)*1.3) !important;
+    opacity: 0.8 !important;
+    font-size: calc(var(--mainFontSize)*1.4) !important;
     cursor: pointer;
     align-items: center;
     justify-content: center;
-    margin: 0 10px;
+    margin: 0;
     padding: 0;
-}
-
-.zoomed_avatar .panelControlBar .drag-grabber.fa-solid,
-.zoomed_avatar .panelControlBar .dragClose.fa-solid,
-#st-native-crop-btn.fa-solid,
-#st-gallery-btn.fa-solid,
-#st-revert-crop-btn.fa-solid {
-    font-size: calc(var(--mainFontSize)*1.3) !important;
     color: white !important;
+    transition: opacity 0.2s, color 0.2s;
 }
 
-.dragClose {
-    height: 20px !important;
-    z-index: 2000;
+.zoomed_avatar .panelControlBar .dragClose:hover,
+#st-native-crop-btn:hover,
+#st-gallery-btn:hover,
+#st-revert-crop-btn:hover {
+    opacity: 1 !important;
+    color: #3399ff !important;
 }
 
-/* ===== 新增：编辑页面底部的无级旋转滑条样式 ===== */
-.st-edit-rotate-container {
+/* ===== 编辑(裁剪)页面内的无级旋转滑条 ===== */
+#st-crop-rotate-container {
     display: flex;
     align-items: center;
     gap: 12px;
+    margin-top: 15px;
+    padding: 12px 15px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 8px;
     width: 100%;
-    max-width: 400px;
-    margin: 15px auto 5px auto;
-    padding: 8px 15px;
     box-sizing: border-box;
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 20px;
-    z-index: 9999;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
 
-.st-edit-rotate-slider {
+#st-crop-rotate-slider {
     flex: 1;
     height: 6px;
     -webkit-appearance: none;
@@ -74,7 +72,7 @@
     cursor: pointer;
 }
 
-.st-edit-rotate-slider::-webkit-slider-thumb {
+#st-crop-rotate-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 18px;
@@ -82,45 +80,43 @@
     border-radius: 50%;
     background: #3399ff;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: transform 0.1s;
 }
 
-.st-edit-rotate-slider::-webkit-slider-thumb:hover {
-    background: #66b2ff;
+#st-crop-rotate-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
 }
 
-.st-edit-rotate-value {
+#st-crop-rotate-val {
     color: #fff;
     font-size: 13px;
-    min-width: 40px;
+    min-width: 45px;
     text-align: right;
     font-family: monospace;
 }
 
-/* ===== 快捷呼出图库小图标按钮 ===== */
-.st-trigger-zoom-btn {
+/* ===== 开关①：头像下方快捷图标 ===== */
+.mesAvatarWrapper .st-trigger-zoom-btn {
+    text-align: center;
     cursor: pointer;
-    display: inline-block;
-    margin-top: 4px;
+    font-size: 16px;
     color: var(--SmartThemeBodyColor);
-    opacity: 0.6;
-    transition: opacity 0.2s;
+    opacity: 0.5;
+    margin-top: 8px;
+    transition: opacity 0.2s, color 0.2s;
 }
-.st-trigger-zoom-btn:hover {
+
+.mesAvatarWrapper .st-trigger-zoom-btn:hover {
     opacity: 1;
+    color: #3399ff;
 }
 
-/* ===== 扩展触控热区 ===== */
-.cropper-line::after {
-    content: '';
-    position: absolute;
-    top: -15px;
-    right: -15px;
-    bottom: -15px;
-    left: -15px;
-    background: transparent;
+/* ===== 开关②：禁用原生头像点击放大 ===== */
+body.st-disable-avatar-click .mesAvatarWrapper .avatar img {
+    pointer-events: none; /* 当开关②关闭时，禁用直接点击头像 */
 }
 
+/* ===== 其他基础组件样式 ===== */
 .cropper-point {
     width: 12px !important;
     height: 12px !important;
@@ -129,84 +125,25 @@
     opacity: 0.9 !important;
 }
 
-.cropper-point::after {
-    content: '';
-    position: absolute;
-    top: -20px;
-    right: -20px;
-    bottom: -20px;
-    left: -20px;
-    background: transparent;
-}
-
-.cropper-point.point-se {
-    width: 16px !important;
-    height: 16px !important;
-}
-
-/* ===== 图库面板 ===== */
 #st-alt-avatar-panel .alt-avatar-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-auto-rows: min-content;
-    align-content: start;
     gap: 15px;
     margin-top: 15px;
     max-height: 70dvh;
     overflow-y: auto;
 }
-
-#st-alt-avatar-panel .alt-avatar-grid::-webkit-scrollbar {
-    display: none !important;
-}
-
 #st-alt-avatar-panel .alt-avatar-item {
     position: relative;
     cursor: pointer;
     aspect-ratio: 1 / 1;
     overflow: hidden;
 }
-
 #st-alt-avatar-panel .alt-avatar-item.selected {
     border: 2px solid #4CAF50;
 }
-
 #st-alt-avatar-panel .alt-avatar-item img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-}
-
-/* ===== 多选删除模式 ===== */
-#st-alt-avatar-panel .alt-avatar-item.to-delete {
-    border-color: #ff4444;
-    opacity: 0.6;
-}
-
-#st-alt-avatar-panel .alt-avatar-item.to-delete::after {
-    content: '\f00d';
-    font-family: 'Font Awesome 6 Free';
-    font-weight: 900;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 3em;
-    color: #ff4444;
-}
-
-#btn-alt-delete-confirm {
-    display: none;
-    color: #ff4444;
-    cursor: pointer;
-    align-items: center;
-    gap: 5px;
-    flex-direction: row;
-    width: fit-content;
-    padding: 0 7px;
-    line-height: 1.7;
-}
-
-#btn-alt-delete-confirm.active {
-    display: flex !important;
 }
