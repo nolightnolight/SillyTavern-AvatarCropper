@@ -2,35 +2,18 @@ import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced, getRequestHeaders } from '../../../../script.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 
-// 初始化数据与状态清理 (清理遗留废案)
+// 清理和收束历史开关遗留
 if (extension_settings.altAvatars) delete extension_settings.altAvatars;
 if (extension_settings.avatarCroppedImages) delete extension_settings.avatarCroppedImages;
-if (extension_settings.avatarGalleryPluginEnabled !== undefined) {
-    extension_settings.avatarGalleryBtnVisible = extension_settings.avatarGalleryPluginEnabled;
-    delete extension_settings.avatarGalleryPluginEnabled;
-}
 if (extension_settings.clickAvatarToZoom !== undefined) delete extension_settings.clickAvatarToZoom;
 
-// 核心开关①初始化：显示/隐藏按钮
+// 仅保留一个核心开关
 if (extension_settings.avatarGalleryBtnVisible === undefined) extension_settings.avatarGalleryBtnVisible = true; 
 
 if (!extension_settings.userGalleryImages) extension_settings.userGalleryImages = [];
 if (!extension_settings.charGalleryImages) extension_settings.charGalleryImages = {};
 if (!extension_settings.avatarThemeBindings) extension_settings.avatarThemeBindings = {};
 if (!extension_settings.avatarThemeCrops) extension_settings.avatarThemeCrops = {};
-
-if (extension_settings.avatarThemeCrops) {
-    for (const theme in extension_settings.avatarThemeCrops) {
-        for (const avatarId in extension_settings.avatarThemeCrops[theme]) {
-            const val = extension_settings.avatarThemeCrops[theme][avatarId];
-            if (typeof val === 'string') {
-                const baseImageKey = extension_settings.avatarThemeBindings?.[theme]?.[avatarId] || avatarId;
-                extension_settings.avatarThemeCrops[theme][avatarId] = {};
-                extension_settings.avatarThemeCrops[theme][avatarId][baseImageKey] = val;
-            }
-        }
-    }
-}
 
 function getAvatarIdFromSrc(src) {
     try {
@@ -61,7 +44,7 @@ function getBinding(theme, avatarId) {
     return extension_settings.avatarThemeBindings?.[theme]?.[avatarId] || null;
 }
 
-// ======================== 后端文件操作 ========================
+// ======================== 后端文件处理 ========================
 
 async function uploadToBackend(base64Data, prefix = "image") {
     const b64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
@@ -146,7 +129,7 @@ async function resizeImageToBase64(file) {
     });
 }
 
-// ======================== CSS 引擎 & 插件状态管理 ========================
+// ======================== CSS 注入引擎 ========================
 
 function applyAvatarCss() {
     let styleTag = document.getElementById('st-avatar-bindings-style');
@@ -199,7 +182,6 @@ function applyAvatarCss() {
 function updatePluginState() {
     const isBtnVisible = !!extension_settings.avatarGalleryBtnVisible;
     
-    // 执行开关①：管理图标的显示与隐藏
     let btnVisibilityStyle = document.getElementById('st-avatar-btn-visibility');
     if (!btnVisibilityStyle) {
         btnVisibilityStyle = document.createElement('style');
@@ -396,23 +378,36 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
         return toastr.error(`获取数据失败，无法编辑: ${e.message}`);
     }
 
-    // 呼出ST自带的裁剪弹窗
+    // 呼出自带裁剪弹窗
     const cropPromise = callGenericPopup('', POPUP_TYPE.CROP, '', { cropAspect: 0, cropImage: base64Original });
 
-    // 修复方案：高频轮询探测 Cropper.js 引擎，一旦就绪立刻注入滑块
+    // 【修复 Bug ②】：采用逆向检索机制，精准拦截当前活跃的 Cropper 实例并强制覆写旋转权限
     let pollCount = 0;
     const injectInterval = setInterval(() => {
         pollCount++;
-        // 寻找裁剪引擎的核心图片元素
-        const cropperImg = document.querySelector('.cropper-hidden');
-        if (cropperImg && cropperImg.cropper) {
-            clearInterval(injectInterval); // 找到后立即停止轮询
-            const cropper = cropperImg.cropper;
+        const cropperImgs = document.querySelectorAll('.cropper-hidden');
+        let activeCropperImg = null;
+        
+        // 从后往前寻找，锁定最新、最顶层处于唤醒状态的 Cropper
+        for (let i = cropperImgs.length - 1; i >= 0; i--) {
+            if (cropperImgs[i].cropper) {
+                activeCropperImg = cropperImgs[i];
+                break;
+            }
+        }
+
+        if (activeCropperImg && activeCropperImg.cropper) {
+            clearInterval(injectInterval);
+            const cropper = activeCropperImg.cropper;
+            
+            // 核心修复点：强制解除酒馆可能配置的底层旋转限制
+            cropper.options.rotatable = true; 
             cropper.setDragMode('move');
             cropper.options.wheelZoomRatio = 0.05;
 
-            // 寻找最佳注入容器：通常是 cropper-container 的父级，或者 popup-body
-            let popupBody = document.querySelector('.cropper-container').closest('.popup-body') || cropperImg.parentElement;
+            const container = activeCropperImg.nextElementSibling;
+            let popupBody = container ? container.closest('.popup-body') : null;
+            if (!popupBody) popupBody = activeCropperImg.closest('.popup-body') || activeCropperImg.parentElement;
             
             if (popupBody && !document.getElementById('st-crop-rotate-slider')) {
                 const sliderHTML = `
@@ -431,21 +426,23 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
                 slider.addEventListener('input', (e) => {
                     const deg = Number(e.target.value);
                     valDisplay.textContent = deg + '°';
-                    cropper.rotateTo(deg);
+                    cropper.options.rotatable = true; // 双重锁，防止运行期被系统重写覆盖
+                    cropper.rotateTo(deg); // 执行无级绝对角度旋转
                 });
 
                 document.getElementById('st-crop-rot-left').onclick = () => {
-                    let next = Math.max(-180, Number(slider.value) - 90);
+                    let next = Number(slider.value) - 90;
+                    if (next < -180) next += 360;
                     slider.value = next; slider.dispatchEvent(new Event('input'));
                 };
                 document.getElementById('st-crop-rot-right').onclick = () => {
-                    let next = Math.min(180, Number(slider.value) + 90);
+                    let next = Number(slider.value) + 90;
+                    if (next > 180) next -= 360;
                     slider.value = next; slider.dispatchEvent(new Event('input'));
                 };
             }
         }
-        // 如果3秒（30次）还没找到，停止轮询，防止无限循环泄漏内存
-        if (pollCount >= 30) clearInterval(injectInterval);
+        if (pollCount >= 40) clearInterval(injectInterval);
     }, 100);
 
     const croppedImageBase64 = await cropPromise;
@@ -477,7 +474,7 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
     }
 }
 
-// ======================== 主界面控制条与按钮注入 ========================
+// ======================== 控制按键注入 ========================
 
 function injectChatButton(mesNode) {
     const wrapper = mesNode.querySelector('.mesAvatarWrapper');
@@ -550,7 +547,7 @@ function injectControlBarButtons(zoomedDiv) {
     else controlBar.appendChild(btnContainer);
 }
 
-// ======================== 初始化全局监听 ========================
+// ======================== 初始化与事件桥接 ========================
 
 let lastTheme = getCurrentTheme();
 setInterval(() => {
@@ -558,7 +555,7 @@ setInterval(() => {
     if (currentTheme !== lastTheme) { lastTheme = currentTheme; applyAvatarCss(); }
 }, 1000);
 
-// 创建设置界面的控制开关 UI (已精简为仅保留开关①)
+// 开关①控制界面渲染
 setInterval(() => {
     try {
         const targetContainer = document.querySelector("#UI-Theme-Block > div.flex-container.flexFlowColumn.flexNoGap > div.flex-container.flexFlowColumn");
@@ -588,13 +585,51 @@ setInterval(() => {
 jQuery(async () => {
     updatePluginState();
 
-    // 优化后的按钮点击逻辑：直接模拟点击同区域的头像 img，无视阻断
+    // 【修复 Bug ①】：由虚拟容器截获图片源，绕过第三方主题的一切 DOM 改动与事件拦截，安全送达酒馆核心监听器
     $(document).on('click', '.st-trigger-zoom-btn', function(e) {
         e.stopPropagation();
-        const avatarImg = $(this).closest('.mesAvatarWrapper').find('.avatar img, img.avatar-image');
-        if (avatarImg.length) {
-            avatarImg.trigger('click');
+        const mesNode = $(this).closest('.mes');
+        let detectedSrc = null;
+
+        // 1. 尝试从标准/变体 img 标签提取路径
+        const standardImg = mesNode.find('.mesAvatarWrapper img, .avatar img, img[class*="avatar"]');
+        if (standardImg.length) {
+            detectedSrc = standardImg.attr('src');
         }
+
+        // 2. 如果没获取到，说明主题使用了背景图 div (如部分高级主题)，启动背景图逆向解析
+        if (!detectedSrc) {
+            const bgDivs = mesNode.find('.avatar, [class*="avatar"], .mesAvatarWrapper');
+            bgDivs.each(function() {
+                const bgValue = $(this).css('background-image');
+                if (bgValue && bgValue !== 'none') {
+                    const match = bgValue.match(/^url\(['"]?([^'"]+)['"]?\)$/);
+                    if (match) {
+                        detectedSrc = match[1];
+                        return false; 
+                    }
+                }
+            });
+        }
+
+        if (!detectedSrc) return; // 没拿到有效图片则阻断，防止抛错
+
+        // 3. 在内存中伪造一个完美符合酒馆原生全局监听要求的虚拟环境节点
+        const fakeShell = document.createElement('div');
+        fakeShell.className = 'avatar';
+        fakeShell.style.display = 'none';
+        
+        const fakeImg = document.createElement('img');
+        fakeImg.src = detectedSrc;
+        
+        fakeShell.appendChild(fakeImg);
+        document.body.appendChild(fakeShell);
+        
+        // 4. 发送原生冒泡点击，直接投递给酒馆核心
+        fakeImg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        
+        // 5. 阅后即焚，清理战场
+        fakeShell.remove();
     });
 
     const observer = new MutationObserver((mutations) => {
