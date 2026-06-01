@@ -20,7 +20,7 @@
 }
 
 .zoomed_avatar .panelControlBar .drag-grabber {
-    display: none !important; /* 隐藏拖拽把手，保持纯净 */
+    display: none !important; /* 隐藏拖拽把手 */
 }
 
 .zoomed_avatar .panelControlBar .dragClose,
@@ -54,12 +54,13 @@
     gap: 12px;
     margin-top: 15px;
     padding: 12px 15px;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.85);
     border-radius: 8px;
     width: 100%;
     box-sizing: border-box;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 99999 !important;
+    position: relative;
 }
 
 #st-crop-rotate-slider {
@@ -96,7 +97,7 @@
     font-family: monospace;
 }
 
-/* ===== 开关①：头像下方快捷图标 ===== */
+/* ===== 头像下方快捷图标 ===== */
 .mesAvatarWrapper .st-trigger-zoom-btn {
     text-align: center;
     cursor: pointer;
