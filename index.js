@@ -2,17 +2,17 @@ import { extension_settings } from '../../../extensions.js';
 import { saveSettingsDebounced, getRequestHeaders } from '../../../../script.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 
-// 初始化数据与状态迁移
+// 初始化数据与状态清理 (清理遗留废案)
 if (extension_settings.altAvatars) delete extension_settings.altAvatars;
 if (extension_settings.avatarCroppedImages) delete extension_settings.avatarCroppedImages;
 if (extension_settings.avatarGalleryPluginEnabled !== undefined) {
     extension_settings.avatarGalleryBtnVisible = extension_settings.avatarGalleryPluginEnabled;
     delete extension_settings.avatarGalleryPluginEnabled;
 }
+if (extension_settings.clickAvatarToZoom !== undefined) delete extension_settings.clickAvatarToZoom;
 
-// 核心开关初始化
-if (extension_settings.avatarGalleryBtnVisible === undefined) extension_settings.avatarGalleryBtnVisible = true; // 开关①
-if (extension_settings.clickAvatarToZoom === undefined) extension_settings.clickAvatarToZoom = true; // 开关②
+// 核心开关①初始化：显示/隐藏按钮
+if (extension_settings.avatarGalleryBtnVisible === undefined) extension_settings.avatarGalleryBtnVisible = true; 
 
 if (!extension_settings.userGalleryImages) extension_settings.userGalleryImages = [];
 if (!extension_settings.charGalleryImages) extension_settings.charGalleryImages = {};
@@ -60,17 +60,6 @@ function getCurrentTheme() {
 function getBinding(theme, avatarId) {
     return extension_settings.avatarThemeBindings?.[theme]?.[avatarId] || null;
 }
-
-let lastValidAvatarId = null;
-setInterval(() => {
-    const previewImg = document.getElementById('avatar_load_preview');
-    if (previewImg) {
-        const src = previewImg.getAttribute('src');
-        if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
-            lastValidAvatarId = getAvatarIdFromSrc(src);
-        }
-    }
-}, 500);
 
 // ======================== 后端文件操作 ========================
 
@@ -209,12 +198,7 @@ function applyAvatarCss() {
 
 function updatePluginState() {
     const isBtnVisible = !!extension_settings.avatarGalleryBtnVisible;
-    const isClickEnabled = !!extension_settings.clickAvatarToZoom;
     
-    // 执行开关②：通过控制 body 的 css class 来决定是否屏蔽原生头像点击
-    if (isClickEnabled) document.body.classList.remove('st-disable-avatar-click');
-    else document.body.classList.add('st-disable-avatar-click');
-
     // 执行开关①：管理图标的显示与隐藏
     let btnVisibilityStyle = document.getElementById('st-avatar-btn-visibility');
     if (!btnVisibilityStyle) {
@@ -415,17 +399,22 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
     // 呼出ST自带的裁剪弹窗
     const cropPromise = callGenericPopup('', POPUP_TYPE.CROP, '', { cropAspect: 0, cropImage: base64Original });
 
-    // 核心注入：在弹窗的底层添加无级旋转长滑条
-    setTimeout(() => {
-        const cropperImg = document.querySelector('#dialogue_popup .cropper-hidden');
+    // 修复方案：高频轮询探测 Cropper.js 引擎，一旦就绪立刻注入滑块
+    let pollCount = 0;
+    const injectInterval = setInterval(() => {
+        pollCount++;
+        // 寻找裁剪引擎的核心图片元素
+        const cropperImg = document.querySelector('.cropper-hidden');
         if (cropperImg && cropperImg.cropper) {
+            clearInterval(injectInterval); // 找到后立即停止轮询
             const cropper = cropperImg.cropper;
             cropper.setDragMode('move');
             cropper.options.wheelZoomRatio = 0.05;
 
-            const popupBody = document.querySelector('#dialogue_popup .popup-body');
+            // 寻找最佳注入容器：通常是 cropper-container 的父级，或者 popup-body
+            let popupBody = document.querySelector('.cropper-container').closest('.popup-body') || cropperImg.parentElement;
+            
             if (popupBody && !document.getElementById('st-crop-rotate-slider')) {
-                // 构建无级旋转 UI，放在最底层
                 const sliderHTML = `
                     <div id="st-crop-rotate-container">
                         <i class="fa-solid fa-arrow-rotate-left" style="cursor:pointer;" id="st-crop-rot-left" title="左旋 90°"></i>
@@ -439,14 +428,12 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
                 const slider = document.getElementById('st-crop-rotate-slider');
                 const valDisplay = document.getElementById('st-crop-rotate-val');
 
-                // 滑动事件：利用原生 cropperjs 的 rotateTo 接口，无级调节并且不损失图片画质
                 slider.addEventListener('input', (e) => {
                     const deg = Number(e.target.value);
                     valDisplay.textContent = deg + '°';
                     cropper.rotateTo(deg);
                 });
 
-                // 为两侧的小图标绑定快捷旋转 90° 的功能
                 document.getElementById('st-crop-rot-left').onclick = () => {
                     let next = Math.max(-180, Number(slider.value) - 90);
                     slider.value = next; slider.dispatchEvent(new Event('input'));
@@ -457,9 +444,10 @@ async function triggerNativeCropPopup(imgSrc, avatarId, isUser, zoomedDiv) {
                 };
             }
         }
-    }, 150);
+        // 如果3秒（30次）还没找到，停止轮询，防止无限循环泄漏内存
+        if (pollCount >= 30) clearInterval(injectInterval);
+    }, 100);
 
-    // 等待用户点击弹窗上的“确认”
     const croppedImageBase64 = await cropPromise;
 
     if (croppedImageBase64) {
@@ -495,7 +483,6 @@ function injectChatButton(mesNode) {
     const wrapper = mesNode.querySelector('.mesAvatarWrapper');
     if (!wrapper || wrapper.querySelector('.st-trigger-zoom-btn')) return;
 
-    // 开关①的小图标：放置在头像下方区域
     const btn = document.createElement('div');
     btn.className = 'st-trigger-zoom-btn fa-solid fa-image-portrait';
     btn.title = '打开原图以管理图库或编辑';
@@ -507,7 +494,6 @@ function injectControlBarButtons(zoomedDiv) {
     const controlBar = zoomedDiv.querySelector('.panelControlBar');
     if (!controlBar) return;
 
-    // 创建容器，在右上角塞入功能按键
     const btnContainer = document.createElement('div');
     btnContainer.className = 'st-avatar-injected-btns';
 
@@ -518,7 +504,6 @@ function injectControlBarButtons(zoomedDiv) {
     const isUser = isUserAvatar(originalSrc);
     const theme = getCurrentTheme();
 
-    // 1. 还原按键
     const revertBtn = document.createElement('div');
     revertBtn.id = 'st-revert-crop-btn';
     revertBtn.className = 'fa-solid fa-arrow-rotate-left';
@@ -538,7 +523,6 @@ function injectControlBarButtons(zoomedDiv) {
         }
     };
 
-    // 2. 编辑按键 (进入裁剪与旋转)
     const cropBtn = document.createElement('div');
     cropBtn.id = 'st-native-crop-btn';
     cropBtn.className = 'fa-solid fa-crop-simple';
@@ -548,7 +532,6 @@ function injectControlBarButtons(zoomedDiv) {
         await triggerNativeCropPopup(originalSrc, avatarId, isUser, zoomedDiv);
     };
 
-    // 3. 图库按键
     const galleryBtn = document.createElement('div');
     galleryBtn.id = 'st-gallery-btn';
     galleryBtn.className = 'fa-solid fa-images';
@@ -558,7 +541,6 @@ function injectControlBarButtons(zoomedDiv) {
         openGallery(isUser, avatarId, originalSrc, zoomedDiv);
     };
 
-    // 按要求顺序注入: 还原 -> 编辑 -> 图库。 （关闭按键原生就在旁边）
     btnContainer.appendChild(revertBtn);
     btnContainer.appendChild(cropBtn);
     btnContainer.appendChild(galleryBtn);
@@ -576,7 +558,7 @@ setInterval(() => {
     if (currentTheme !== lastTheme) { lastTheme = currentTheme; applyAvatarCss(); }
 }, 1000);
 
-// 创建设置界面的两个控制开关 UI
+// 创建设置界面的控制开关 UI (已精简为仅保留开关①)
 setInterval(() => {
     try {
         const targetContainer = document.querySelector("#UI-Theme-Block > div.flex-container.flexFlowColumn.flexNoGap > div.flex-container.flexFlowColumn");
@@ -585,27 +567,18 @@ setInterval(() => {
             container.id = 'st-avatar-features-toggle-container';
             container.className = 'flex-container alignItemsBaseline';
             const isVisible = !!extension_settings.avatarGalleryBtnVisible;
-            const isClickEnabled = !!extension_settings.clickAvatarToZoom;
             
             container.innerHTML = `
                 <span data-i18n="Avatar Gallery Management">头像图库管理：</span>
-                <select id="st-avatar-crop-select" class="widthNatural flex1 margin0 text_pole" title="开关①：在头像下方显示管理小图标" style="margin-right: 8px !important;">
-                    <option value="false" ${!isVisible ? 'selected' : ''}>开关① 隐藏按钮</option>
-                    <option value="true" ${isVisible ? 'selected' : ''}>开关① 显示按钮</option>
-                </select>
-                <select id="st-avatar-click-select" class="widthNatural flex1 margin0 text_pole" title="开关②：允许直接点击角色图片进入放大界面">
-                    <option value="false" ${!isClickEnabled ? 'selected' : ''}>开关② 点击放大关</option>
-                    <option value="true" ${isClickEnabled ? 'selected' : ''}>开关② 点击放大开</option>
+                <select id="st-avatar-crop-select" class="widthNatural flex1 margin0 text_pole" title="在头像下方显示快捷进入图库的小图标">
+                    <option value="false" ${!isVisible ? 'selected' : ''}>隐藏按钮</option>
+                    <option value="true" ${isVisible ? 'selected' : ''}>显示按钮</option>
                 </select>
             `;
             targetContainer.appendChild(container);
             
             document.getElementById('st-avatar-crop-select').addEventListener('change', (e) => {
                 extension_settings.avatarGalleryBtnVisible = (e.target.value === 'true');
-                saveSettingsDebounced(); updatePluginState();
-            });
-            document.getElementById('st-avatar-click-select').addEventListener('change', (e) => {
-                extension_settings.clickAvatarToZoom = (e.target.value === 'true');
                 saveSettingsDebounced(); updatePluginState();
             });
         }
@@ -615,15 +588,12 @@ setInterval(() => {
 jQuery(async () => {
     updatePluginState();
 
-    // 如果通过开关①的小按钮点击，通过 JS 手动触发原生图片的放大动作，无视 CSS 的拦截
+    // 优化后的按钮点击逻辑：直接模拟点击同区域的头像 img，无视阻断
     $(document).on('click', '.st-trigger-zoom-btn', function(e) {
         e.stopPropagation();
-        const avatarImg = $(this).closest('.mesAvatarWrapper').find('.avatar img');
+        const avatarImg = $(this).closest('.mesAvatarWrapper').find('.avatar img, img.avatar-image');
         if (avatarImg.length) {
-            const rawImg = avatarImg.get(0);
-            rawImg.style.pointerEvents = 'auto'; // 临时解封
-            avatarImg.trigger('click'); // 触发放大
-            if (!extension_settings.clickAvatarToZoom) rawImg.style.pointerEvents = 'none'; // 如果开关②是关的，重新封印
+            avatarImg.trigger('click');
         }
     });
 
